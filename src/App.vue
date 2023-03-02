@@ -1,120 +1,191 @@
-<script setup>
-import { ref, watch } from "vue";
-import card from "./components/card.vue";
-const FRONT = "front";
-const BACK = "back";
-const DISAPPEAR = "disappear";
+<script lang="ts" setup>
+import { ref } from "vue";
 
-// 卡牌数据 - 红桃1-8 黑桃1-8
+// 数据
+interface Icard {
+  content: number;
+  state: "open" | "close" | "shake" | "disappear";
+  color: "gray" | "smoke";
+}
+const cards = ref<Icard[]>([]);
+
+// 生成数据
 function createCards() {
-  let cardArr = new Array(16).fill(null);
-  for (let i = 0; i < cardArr.length; i++) {
-    if (i <= 7) cardArr[i] = i + 1;
-    if (i === 8) cardArr[i] = 11;
-    if (i > 8) cardArr[i] = cardArr[i - 1] + 1;
+  for (let i = 0; i < 16; i++) {
+    cards.value.push({ content: i + 1, state: "close", color: "gray" });
   }
-  // 洗牌
-  function shuffle(arr) {
-    let i, j;
-    for (i = arr.length; i; i--) {
-      // j为0~length-1，此处i不能为0，因为i为0则j一定为0
-      j = Math.floor(Math.random() * i);
-      // 交换i j
-      [arr[i - 1], arr[j]] = [arr[j], arr[i - 1]];
-    }
-    return arr;
+  for (let i = 8; i < 16; i++) {
+    cards.value[i].content = i - 7;
+    cards.value[i].color = "smoke";
   }
-  cardArr = shuffle(cardArr);
+  shuffle(cards.value);
+}
+createCards();
 
-  cardArr = cardArr.map((num, index) => {
-    return { cardInfo: num + "-" + index, cardControl: "back" };
-  });
+// 控制数据
+// 第一次点击的卡牌
+let lastCard: Icard | null;
+let restCard: number = cards.value.length;
 
-  return cardArr;
+// 方法
+// 洗牌：每次在未放置队列中随机抽一张，放到最后或上一张牌的前面
+function shuffle(arr: Icard[]): void {
+  let i: number; // 抽取队列的最后一张，也代表抽取队列的数量
+  let j: number; // 随机抽出的牌
+  for (i = arr.length; i > 0; i--) {
+    j = Math.floor(Math.random() * i);
+    // 交换 i j
+    const card_i = arr[i - 1];
+    const card_j = arr[j];
+
+    Object.keys(card_i).map((p) => {
+      [card_i[p], card_j[p]] = [card_j[p], card_i[p]];
+    });
+  }
 }
 
-const cards = ref(createCards());
-let restCards = ref(cards.value.length);
+function cardClickHandler(index: number): void {
+  const card = cards.value[index];
+  if (card === lastCard) return;
 
-// 每轮只能点击两次，相同则消除，否则翻转
-// 每轮内点击同一卡片无响应
-function round() {
-  let lastCard = {
-    num: null,
-    index: null,
-  };
+  const state = card.state;
+  card.state = state === "close" ? "open" : "close";
 
-  return function compare(cardInfo) {
-    const { num, index } = cardInfo;
-    // 将卡牌翻面
-    cards.value[index].cardControl = FRONT;
+  // 开始判断
+  // lastCard === null
+  //   ? (lastCard = card)
+  //   : lastCard.content === card.content // 是null这一行还是会被执行
+  //   ? matchRight()
+  //   : matchError();
 
-    // 保存第一张牌信息
-    if (!lastCard.num) {
-      lastCard.num = num;
-      lastCard.index = index;
-      return;
-    }
-    // 与上一张卡牌判断
-    // 点击同一张卡牌无响应
-    if (lastCard.index === index) return;
-    if (lastCard.num === num) {
-      // 相同卡牌，消除
-      setTimeout(() => {
-        cards.value[index].cardControl = DISAPPEAR;
-        cards.value[lastCard.index].cardControl = DISAPPEAR;
-        restCards.value -= 2;
-      }, 1000);
-    }
-    // 不同卡牌，延时还原
-    if (lastCard.num !== num) {
-      setTimeout(() => {
-        cards.value[index].cardControl = BACK;
-        cards.value[lastCard.index].cardControl = BACK;
-      }, 1000);
-    }
-    // 开始下一轮
-    lastCard.num = null;
-  };
-}
-// 卡牌点击事件，闭包round()()无法直接注入模板
-const clickHandler = round();
-
-// 监听牌库数量，所有牌清除则提示游戏完成
-watch(restCards, () => {
-  if (!restCards.value) {
-    const res = confirm("恭喜你，游戏完成，是否继续一把");
-    if (res) cards.value = createCards();
+  if (!lastCard) {
+    lastCard = card;
+    return;
   }
-});
+
+  lastCard && lastCard.content === card.content ? matchRight() : matchError();
+
+  function matchRight() {
+    (lastCard as Icard).state = card.state = "disappear";
+    lastCard = null;
+    restCard = restCard - 2;
+
+    if (restCard === 0) {
+      setTimeout(() => {
+        alert("congratulation");
+        cards.value.length = 0;
+        createCards();
+      }, 500);
+    }
+  }
+  function matchError() {
+    (lastCard as Icard).state = card.state = "shake";
+    const _lastCard = lastCard;
+    lastCard = null;
+    setTimeout(() => {
+      (_lastCard as Icard).state = card.state = "close";
+    }, 500);
+  }
+}
 </script>
 
 <template>
   <main>
-    <card
-      v-for="card in cards"
-      :cardInfo="card.cardInfo"
-      :cardControl="card.cardControl"
-      @clickCard="clickHandler"
-    ></card>
+    <div
+      v-for="(card, index) in cards"
+      :class="[
+        { close: card.state === 'close' },
+        { shake: card.state === 'shake' },
+        { disappear: card.state === 'disappear' },
+        [card.color === 'smoke' ? 'smoke' : 'gray'],
+      ]"
+      @click="cardClickHandler(index)"
+    >
+      {{ card.content }}
+    </div>
   </main>
 </template>
 
-<style scoped>
+<style scoped lang="scss">
 main {
-  background-color: bisque;
-  width: 45vw;
-  min-width: 470px;
-  height: 80vh;
-  min-height: 630px;
+  width: 60vw;
+  height: 60vw;
   margin: 10vh auto;
-  border-radius: 1%;
+  padding: 10px;
 
-  box-shadow: 2px 3px 20px gray;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  grid-template-rows: 1fr 1fr 1fr 1fr;
+  grid-gap: 10px;
 
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-evenly;
-  align-items: center;
+  background-color: bisque;
+  border-radius: 10px;
+
+  div {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+
+    background-color: burlywood;
+    border-radius: inherit;
+
+    transition: all ease 0.2s;
+
+    user-select: none;
+    font-size: calc((60vw - 50px) / 12);
+
+    &.close {
+      color: transparent;
+    }
+    &.disappear {
+      transition: all ease 0.3s;
+      transform: scale(0);
+      visibility: hidden;
+    }
+    &.shake {
+      animation: shaking;
+      animation-duration: 0.5s;
+
+      @keyframes shaking {
+        10% {
+          transform: translateX(2px);
+        }
+        20% {
+          transform: translateX(-2px);
+        }
+        30% {
+          transform: translateX(2px);
+        }
+        40% {
+          transform: translateX(-2px);
+        }
+        50% {
+          transform: translateX(2px);
+        }
+        60% {
+          transform: translateX(-2px);
+        }
+        70% {
+          transform: translateX(2px);
+        }
+        80% {
+          transform: translateX(-2px);
+        }
+        90% {
+          transform: translateX(2px);
+        }
+        100% {
+          transform: translateX(0);
+        }
+      }
+    }
+
+    &.smoke {
+      color: whitesmoke;
+    }
+    &.gray {
+      color: gray;
+    }
+  }
 }
 </style>
